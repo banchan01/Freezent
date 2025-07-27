@@ -1,7 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
+**/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -40,7 +41,43 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Python
 __pycache__/
 *.pyc
-.env
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Data files
+*.csv
+*.parquet
+*.xlsx
+*.xls
+
+# Chrome driver
+chromedriver-win64/
+
+# Dataset folders
+dataset/
+
+# Logs
+*.log
+
+# OS generated files
 **/.DS_Store
+**/Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
