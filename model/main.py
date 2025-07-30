@@ -7,6 +7,13 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 import httpx
 import time
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 절대 경로로 디렉토리 정의
+ensemble_weight_dir = os.path.join(BASE_DIR, "weights", "ensemble_weights")
+ensemble_threshold_dir = os.path.join(BASE_DIR, "weights", "ensemble_thresholds")
 
 app = FastAPI()
 
@@ -42,8 +49,8 @@ ensemble_thresholds = []
 def load_models():
     global ensemble_weights, ensemble_thresholds
     for i in range(1, n_ensembles + 1):
-        weights_path = f"./model/weights/ensemble_weights/ensemble_weights_set{i}.pt"
-        thresh_path = f"./model/weights/ensemble_thresholds/ensemble_thresholds_set{i}.csv"
+        weights_path = os.path.join(ensemble_weight_dir, f"ensemble_weights_set{i}.pt")
+        thresh_path = os.path.join(ensemble_threshold_dir, f"ensemble_thresholds_set{i}.csv")
         ensemble_weights.append(torch.load(weights_path, map_location=device))
         df_thresh = pd.read_csv(thresh_path)
         ensemble_thresholds.append(dict(zip(df_thresh['종목명'], df_thresh['임계값'])))
@@ -63,8 +70,7 @@ async def fetch_recent_data(stock_name: str) -> pd.DataFrame:
     # df = df[features]
     # if len(df) < window_size:
     #     raise HTTPException(status_code=400, detail="Insufficient data (need ≥30 days)")
-    
-    data_path = "./model/data/anomaly_data.csv"
+    data_path = os.path.join(BASE_DIR, "data", "anomaly_data.csv")
     df_input = pd.read_csv(data_path, encoding='cp949')
     df_input = df_input[features]
 
