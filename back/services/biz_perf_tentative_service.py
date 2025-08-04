@@ -11,8 +11,8 @@ from fastapi import HTTPException
 
 load_dotenv()
 
-API_KEY = os.getenv("DART_API_KEY", "e6c728753731f2eb29391d2ee89fd2d59f82d7b7")
-BASE_URL = os.getenv("DART_API", "https://opendart.fss.or.kr/api/list.json")
+API_KEY = os.getenv("DART_API_KEY")
+BASE_URL = os.getenv("DART_API")
 
 def show_me_the_html(rcp_no: str) -> str:
     # 셀레니움 설정
