@@ -62,8 +62,9 @@ venv.bak/
 # Chrome driver
 chromedriver-win64/
 
-# Dataset folders
-dataset/
+# Dataset folders - exclude only numeric folders
+dataset/[0-9]*/    # 숫자로 시작하는 폴더 무시
+!dataset/**/       # 나머지 폴더와 파일은 추적
 
 # Logs
 *.log
