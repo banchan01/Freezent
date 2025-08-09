@@ -6,6 +6,7 @@ app = FastAPI(title="Freezent Backend API", description="주식 분석 백엔드
 # 라우터 포함
 app.include_router(floating_stock_router, tags=["floating_stocks"])
 app.include_router(biz_perf_tentative_router, tags=["biz_perf_tentative"])
+app.include_router(news_anal_router, tags=["news_anal"])
 
 @app.get("/")
 async def root():
