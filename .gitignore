@@ -55,6 +55,7 @@ venv.bak/
 
 # Data files
 *.csv
+*.parquet
 *.xlsx
 *.xls
 
