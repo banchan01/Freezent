@@ -123,8 +123,3 @@ async def get_biz_performance_tentative(corp_name: str) -> str:
             raise HTTPException(status_code=400, detail=f"DART API 오류 코드: {data['status']} - {data.get('message')}")
     else:
         raise HTTPException(status_code=502, detail=f"HTTP 요청 실패: {response.status_code}")
-<<<<<<< HEAD
-=======
-
-
->>>>>>> feature/agent
