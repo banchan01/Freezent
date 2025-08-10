@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from routers.floating_stock_router import router as floating_stock_router
 from routers.biz_perf_tentative_router import router as biz_perf_tentative_router
+from routers.news_anal_router import router as news_anal_router
 app = FastAPI(title="Freezent Backend API", description="주식 분석 백엔드 API")
 
 # 라우터 포함
