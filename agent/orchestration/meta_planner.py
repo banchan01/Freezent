@@ -1,8 +1,19 @@
-from typing import Literal, Dict, Any
-
-# Decide parallel vs sequential, and craft domain-specific tasks
+# orchestration/meta_planner.py
+from __future__ import annotations
+from typing import Dict
 
 def make_domain_tasks(ticker: str, horizon: str) -> Dict[str, str]:
-    news_task = f"Assess news-driven risk for {ticker} over {horizon}. Return disambiguated events."
-    filing_task = f"Assess filing-driven risk for {ticker} over {horizon}. Extract accounting and legal signals."
+    """
+    두 도메인 작업 문자열을 반드시 생성해 반환합니다.
+    """
+    news_task = (
+        f"Assess news-driven risk for {ticker} over {horizon}. "
+        f"Disambiguate the entity and extract events (management_change, litigation, "
+        f"product_issue, regulatory, macro_news). Return concise bullets."
+    )
+    filing_task = (
+        f"Assess filing-driven risk for {ticker} over {horizon}. "
+        f"Focus on audit opinions, lawsuits, financing (CB/BW), liquidity warnings, "
+        f"significant contracts, and accounting issues. Return concise bullets."
+    )
     return {"news_task": news_task, "filing_task": filing_task}

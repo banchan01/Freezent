@@ -1,11 +1,22 @@
-from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Optional, Literal, Dict, Any
+# common/schemas.py
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
+from pydantic import BaseModel, Field, HttpUrl
+
 
 EventType = Literal[
-    "management_change", "litigation", "financing", "accounting_issue",
-    "macro_news", "product_issue", "supply_chain", "regulatory",
+    "management_change",
+    "litigation",
+    "financing",
+    "accounting_issue",
+    "macro_news",
+    "product_issue",
+    "supply_chain",
+    "regulatory",
 ]
+
 
 class Evidence(BaseModel):
     source: Literal["news", "filing", "llm"]
@@ -14,7 +25,8 @@ class Evidence(BaseModel):
     snippet: Optional[str] = None
     published_at: Optional[datetime] = None
     raw: Optional[Dict[str, Any]] = None
-    confidence: float = 0.5
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
 
 class DomainEvent(BaseModel):
     ticker: str
@@ -24,12 +36,14 @@ class DomainEvent(BaseModel):
     timestamp: Optional[datetime] = None
     evidence: List[Evidence] = []
 
+
 class DomainResult(BaseModel):
     domain: Literal["news", "filing"]
     ticker: str
-    events: List[DomainEvent]
+    events: List[DomainEvent] = []
     domain_risk_score: float = Field(ge=0.0, le=1.0)
     rationale: str
+
 
 class FinalRiskReport(BaseModel):
     ticker: str
