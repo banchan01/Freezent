@@ -1,8 +1,14 @@
 # mcp/tools/floating_stock/floating_stock_service.py
 import httpx
 import os
+import sys
+import json
 from typing import Optional
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv()
+DART_API_KEY = os.getenv("DART_API_KEY","")
 
 # Pydantic Models
 class MajorShareholderResponse(BaseModel):
@@ -18,7 +24,6 @@ class FloatingStockResponse(BaseModel):
     error: Optional[str] = None
 
 # Environment Variables
-DART_API_KEY = os.getenv("DART_API_KEY")
 
 async def get_major_shareholders(corp_code: str, year: str) -> Optional[MajorShareholderResponse]:
     """최대주주 현황을 조회합니다."""
@@ -60,8 +65,13 @@ async def get_major_shareholders(corp_code: str, year: str) -> Optional[MajorSha
 
 async def calculate_floating_stock_ratio(corp_code: str) -> FloatingStockResponse:
     """Calculates the floating stock ratio using a given corp_code."""
-    if not corp_code or not DART_API_KEY:
-        return FloatingStockResponse(success=False, error="corp_code and DART_API_KEY must be provided.")
+    print(f"[DEBUG] corp_code: {corp_code}, DART_API_KEY: {repr(DART_API_KEY)}")
+
+    if not corp_code:
+        return FloatingStockResponse(success=False, error="corp_code must be provided.")
+    if not DART_API_KEY:
+        print(f"im'here: {DART_API_KEY}")
+        return FloatingStockResponse(success=False, error="DART_API_KEY must be provided.")
 
     # Get major shareholder data for the last two years to average them
     ms_2023 = await get_major_shareholders(corp_code, "2023")
