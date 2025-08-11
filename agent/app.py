@@ -23,7 +23,7 @@ def main():
     app = build_meta_graph()
 
     init = {
-        "ticker": os.getenv("TEST_TICKER", "005930.KS"),
+        "ticker": os.getenv("TEST_TICKER", "삼성전자"),
         "horizon": os.getenv("TEST_HORIZON", "30d"),
         "task": "Assess combined risk from news & filings",
         "news_result": None,

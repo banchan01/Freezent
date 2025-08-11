@@ -25,7 +25,7 @@ def run_once(ticker: str, horizon: str) -> dict:
 
 
 def main():
-    ticker = os.getenv("TEST_TICKER", "005930.KS")
+    ticker = os.getenv("TEST_TICKER", "삼성전자")
     horizon = os.getenv("TEST_HORIZON", "30d")
 
     mode = "HTTP" if os.getenv("USE_MCP", "false").lower() == "true" else "MOCK"
