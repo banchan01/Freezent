@@ -56,57 +56,6 @@ class MCPClient:
         )
 
 
-# Mock transport for dev/test
-class MockMCPClient(MCPClient):
-    """
-    Local mock client that returns deterministic payloads matching the contracts.
-    Useful when the real MCP server is not yet available.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(self._mock_call)
-
-    @staticmethod
-    def _ok(data: Any) -> Dict[str, Any]:
-        return {"ok": True, "data": data, "version": "2025-08-01"}
-
-    @staticmethod
-    def _err(code: str, message: str, details: Any = None) -> Dict[str, Any]:
-        return {"ok": False, "error": {"code": code, "message": message, "details": details}}
-
-    def _mock_call(self, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        # You can tweak these to simulate edge cases / errors
-        if name == "ListPaidIn":
-            return self._ok({"items": [
-                {"rcp_no": "20240101000123", "corp_name": "샘플", "rpt_nm": "제3자배정유상증자"}
-            ], "total": 1})
-
-        if name == "ListBizReports":
-            return self._ok({"items": [
-                {"rcp_no": "20240102000456", "corp_name": "샘플", "rpt_nm": "영업(매출)공시"}
-            ], "total": 1})
-
-        if name == "PaidInAnalyze":
-            return self._ok({
-                "summary": "유상증자 영향은 중간 수준으로 평가됨.",
-                "events": [],
-                "filings_count": 1,
-                "model": "mock",
-                "prompt_version": payload.get("prompt_version", "v1"),
-            })
-
-        if name == "BizChangeAnalyze":
-            return self._ok({
-                "summary": "최근 영업 실적은 안정적이며 변화는 제한적.",
-                "events": [],
-                "filings_count": 1,
-                "model": "mock",
-                "prompt_version": payload.get("prompt_version", "v1"),
-            })
-
-        return self._err("UNKNOWN_TOOL", f"unknown tool '{name}'")
-
-
 # HTTP transport (real MCP)
 class HttpMCPClient(MCPClient):
     """
@@ -178,23 +127,17 @@ class HttpMCPClient(MCPClient):
 # Factory (env-controlled)
 def build_mcp_client() -> MCPClient:
     """
-    Choose Mock or HTTP client based on environment variables.
-
+    Builds a real HTTP client. Mock is removed.
     Env:
-      USE_MCP=true|false         -> default false (mock)
-      MCP_BASE_URL=http://...    -> required when USE_MCP=true
+      MCP_BASE_URL=http://...    -> required
       MCP_API_TOKEN=...          -> optional
       MCP_TIMEOUT_SEC=30         -> optional
       MCP_RETRIES=2              -> optional
       MCP_BACKOFF=0.3            -> optional
     """
-    use_mcp = os.getenv("USE_MCP", "false").lower() == "true"
-    if not use_mcp:
-        return MockMCPClient()
-
     base = os.getenv("MCP_BASE_URL")
     if not base:
-        raise ValueError("MCP_BASE_URL is required when USE_MCP=true")
+        raise ValueError("MCP_BASE_URL is required for real MCP client")
 
     token = os.getenv("MCP_API_TOKEN")
     timeout = float(os.getenv("MCP_TIMEOUT_SEC", "30"))
@@ -208,3 +151,7 @@ def build_mcp_client() -> MCPClient:
         retries=retries,
         backoff=backoff,
     )
+
+
+# Global default client
+mcp_client = build_mcp_client()

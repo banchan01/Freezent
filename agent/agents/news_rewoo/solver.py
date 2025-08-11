@@ -8,103 +8,95 @@ from typing import Any, Dict, List
 from common.schemas import DomainResult, DomainEvent, Evidence
 
 
-_NEG_KEYWORDS = [
-    "소송", "기소", "검찰", "규제", "제재", "리콜", "화재", "폭발", "해킹",
-    "부정", "부실", "회계", "적자", "감사", "벌금", "과징금", "파산", "채무",
-    "인수 무산", "디폴트", "연체", "판매중단", "리스트럭쳐링", "사기", "담합",
-]
-_POS_KEYWORDS = [
-    "수주", "계약", "실적 개선", "호실적", "흑자전환", "완화", "해제",
-]
-
-
-def _clamp01(x: float) -> float:
-    return max(0.0, min(1.0, x))
-
-
-def _score_from_text(text: str) -> float:
-    """
-    매우 단순한 휴리스틱:
-    - 부정 키워드당 +0.08
-    - 긍정 키워드당 -0.04
-    - 기본값 0.30, 0~1로 클램프
-    """
-    if not text:
-        return 0.30
-    neg = sum(1 for k in _NEG_KEYWORDS if k in text)
-    pos = sum(1 for k in _POS_KEYWORDS if k in text)
-    raw = 0.30 + 0.08 * neg - 0.04 * pos
-    return _clamp01(raw)
+def _parse_date(date_str: str | None) -> datetime | None:
+    """'YY.MM.DD' 형식의 문자열을 datetime으로 변환 시도"""
+    if not date_str:
+        return None
+    try:
+        # YY.MM.DD 형식을 datetime 객체로 변환
+        return datetime.strptime(f"20{date_str}", "%Y.%m.%d")
+    except (ValueError, TypeError):
+        return None
 
 
 def news_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
     """
-    BaseReWOO의 tool 결과는 문자열로 들어올 수 있으므로 안전하게 처리:
-    - JSON으로 보이면 파싱해서 snippet/evidence.raw에 넣음
-    - 아니면 원문 문자열을 snippet으로 저장
+    MCP 'analyze_stock_news' 도구의 JSON 출력물을 파싱하여 DomainResult를 생성합니다.
+    - 각 기사 항목을 Evidence로 변환합니다.
+    - 각 기사의 '분석결과'를 사용하여 DomainEvent를 생성합니다.
+    - 전체 위험 점수는 모든 이벤트의 심각도(severity) 중 최대값으로 결정합니다.
     """
-    evidences: List[Evidence] = []
-    merged_snippets: List[str] = []
+    all_events: List[DomainEvent] = []
+    all_evidences: List[Evidence] = []
+    max_severity = 0.0
 
-    for step_name, payload_str in (raw_steps or {}).items():
-        snippet = ""
-        raw_json: Dict[str, Any] | None = None
-        try:
-            raw = json.loads(payload_str)
-            if isinstance(raw, dict):
-                raw_json = raw
-                # Tavily 형식 대비(있다면)
-                if "results" in raw and isinstance(raw["results"], list) and raw["results"]:
-                    first = raw["results"][0]
-                    snippet = str(first.get("content") or first.get("snippet") or "")[:500]
-                else:
-                    snippet = payload_str[:500]
-            else:
-                snippet = str(raw)[:500]
-        except Exception:
-            snippet = (payload_str or "")[:500]
+    # BaseReWOO의 결과는 '#E' 단계에 JSON 문자열로 저장됩니다.
+    payload_str = (raw_steps or {}).get("#E", "{}")
 
-        merged_snippets.append(snippet)
-        evidences.append(
-            Evidence(
+    try:
+        data = json.loads(payload_str)
+        articles = data.get("기사목록", []) if isinstance(data, dict) else []
+
+        for article in articles:
+            analysis = article.get("분석결과", {})
+            
+            # 1. 각 기사에 대한 Evidence 생성
+            evidence = Evidence(
                 source="news",
-                title=None,
-                url=None,
-                snippet=snippet,
-                published_at=None,
-                raw=raw_json,
-                confidence=0.5,
+                title=article.get("제목"),
+                url=article.get("링크"),
+                snippet=(article.get("본문") or "")[:500],
+                published_at=_parse_date(article.get("날짜")),
+                raw=article,
+                confidence=analysis.get("신뢰도", 0.7) if isinstance(analysis, dict) else 0.5,
             )
-        )
+            all_evidences.append(evidence)
 
-    # 점수 산출(모든 스니펫을 이어붙여 간단 스코어)
-    full_text = "\n".join(merged_snippets)
-    score = _score_from_text(full_text)
+            # 2. 각 기사의 분석 결과로 DomainEvent 생성
+            # (분석결과 필드에 is_negative_event, severity 등이 있다고 가정)
+            if isinstance(analysis, dict) and analysis.get("is_negative_event"):
+                severity = float(analysis.get("severity", 0.5))
+                event = DomainEvent(
+                    ticker=ticker,
+                    event_type=analysis.get("event_type", "unknown_news"),
+                    severity=severity,
+                    confidence=analysis.get("confidence", 0.6),
+                    timestamp=_parse_date(article.get("날짜")) or datetime.utcnow(),
+                    evidence=[evidence],  # 현재 기사를 증거로 연결
+                    summary=analysis.get("summary", "요약 정보 없음."),
+                )
+                all_events.append(event)
+                if severity > max_severity:
+                    max_severity = severity
 
-    # 이벤트: 최소 1건 보장
-    if not evidences:
-        evidences = [
-            Evidence(
-                source="news",
-                snippet="no-news-evidence",
-                confidence=0.4,
-            )
-        ]
-    events = [
-        DomainEvent(
+    except (json.JSONDecodeError, TypeError) as e:
+        return DomainResult(
+            domain="news",
             ticker=ticker,
-            event_type="macro_news",
-            severity=score,              # 간단히 점수 = severity
-            confidence=0.6 if merged_snippets else 0.4,
-            timestamp=datetime.utcnow(),
-            evidence=evidences,
+            events=[],
+            domain_risk_score=0.1,
+            rationale=f"뉴스 분석 도구 결과 파싱 실패: {e}",
         )
-    ]
+
+    # 부정적 이벤트가 없으면, 중립 이벤트를 생성
+    if not all_events:
+        all_events.append(
+            DomainEvent(
+                ticker=ticker,
+                event_type="no_significant_news",
+                severity=0.1,
+                confidence=0.8,
+                timestamp=datetime.utcnow(),
+                evidence=all_evidences, # 찾은 모든 기사를 증거로 첨부
+                summary="분석된 기사에서 특별한 부정적 이벤트가 발견되지 않았습니다.",
+            )
+        )
+        max_severity = 0.1
 
     return DomainResult(
         domain="news",
         ticker=ticker,
-        events=events,
-        domain_risk_score=score,
-        rationale="heuristic(news): keyword-based scoring with safe defaults",
+        events=all_events,
+        domain_risk_score=max_severity,
+        rationale="위험 점수는 MCP 뉴스 분석 결과의 최대 심각도입니다.",
     )

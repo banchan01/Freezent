@@ -31,8 +31,6 @@ def main():
         "final_report": None,
     }
 
-    print("RUN MODE:",
-          "MCP(HTTP)" if os.getenv("USE_MCP", "false").lower() == "true" else "MOCK")
     print(f"TICKER={init['ticker']}  HORIZON={init['horizon']}")
 
     last = {}

@@ -10,55 +10,17 @@ from orchestration.fusion_solver import fuse
 
 from agents.base_rewoo import BaseReWOO
 
-# News domain
+# Domain-specific planners and solvers
 from agents.news_rewoo.planner import NEWS_PLANNER_PROMPT
-from agents.news_rewoo.workers import NewsWorkers
 from agents.news_rewoo.solver import news_postprocess
-
-# Filings domain
 from agents.filings_rewoo.planner import FILINGS_PLANNER_PROMPT
-from agents.filings_rewoo.workers import FilingsWorkers
 from agents.filings_rewoo.solver import filings_postprocess
 
-# MCP client builder
-from clients.mcp_client import build_mcp_client
 
-
-# ---- Concrete ReWOO subclasses to register domain tools ----
-
-class NewsReWOO(BaseReWOO):
-    def register_tools(self):
-        workers = NewsWorkers()
-        self.tools = {
-            "Google": workers.google,  # Tavily wrapper
-            "LLM": workers.llm,
-        }
-
-
-class FilingsReWOO(BaseReWOO):
-    """
-    MCPClient를 내부에 주입(inject)하여 원격 MCP 도구를 등록합니다.
-    """
-    def __init__(self, name: str, planner_prompt: str):
-        self._mcp = build_mcp_client()  # USE_MCP=false -> Mock, true -> HTTP
-        super().__init__(name, planner_prompt)
-
-    def register_tools(self):
-        workers = FilingsWorkers(self._mcp)
-        self.tools = {
-            # MCP remote tools
-            "ListPaidIn": workers.list_paid_in,
-            "ListBizReports": workers.list_biz_reports,
-            "PaidInAnalyze": workers.paid_in_analyze,
-            "BizChangeAnalyze": workers.biz_change_analyze,
-            # Local LLM is still available if needed
-            "LLM": workers.llm,
-        }
-
-
-# ---- Instantiate domain agents ----
-news_agent = NewsReWOO("news", NEWS_PLANNER_PROMPT)
-filings_agent = FilingsReWOO("filing", FILINGS_PLANNER_PROMPT)
+# ---- Instantiate domain agents using the generic BaseReWOO ----
+# The domain-specific logic is now entirely in the planner prompts and postprocess functions.
+news_agent = BaseReWOO("news", NEWS_PLANNER_PROMPT)
+filings_agent = BaseReWOO("filing", FILINGS_PLANNER_PROMPT)
 
 
 # ---- Meta Graph Nodes ----
@@ -81,10 +43,10 @@ def run_news(state: MetaState):
         f"Assess news-driven risk for {ticker} over {horizon}. "
         f"Disambiguate entity and extract events."
     )
-    out = news_agent.run(news_task)  # stream result dict
-    raw_steps = {}
-    if out and "tool" in out and "results" in out["tool"]:
-        raw_steps = out["tool"]["results"]  # Dict[str, str]
+    # Run the agent and get the final state
+    final_agent_state = news_agent.run(news_task)
+    # Extract results from the 'tool' node's output
+    raw_steps = final_agent_state.get("results", {})
     domain = news_postprocess(ticker, raw_steps)
     return {"news_result": domain}
 
@@ -98,10 +60,10 @@ def run_filings(state: MetaState):
         f"Assess filing-driven risk for {ticker} over {horizon}. "
         f"Extract accounting and legal signals."
     )
-    out = filings_agent.run(filing_task)
-    raw_steps = {}
-    if out and "tool" in out and "results" in out["tool"]:
-        raw_steps = out["tool"]["results"]
+    # Run the agent and get the final state
+    final_agent_state = filings_agent.run(filing_task)
+    # Extract results from the 'tool' node's output
+    raw_steps = final_agent_state.get("results", {})
     domain = filings_postprocess(ticker, raw_steps)
     return {"filing_result": domain}
 
@@ -121,9 +83,10 @@ def build_meta_graph():
     g.add_node("final", final_solve)
 
     g.add_edge(START, "meta_plan")
-    # 순차 실행(필요 시 병렬화 가능)
+    # news, filings 병렬 실행
     g.add_edge("meta_plan", "news")
-    g.add_edge("news", "filings")
+    g.add_edge("meta_plan", "filings")
+    g.add_edge("news", "final")
     g.add_edge("filings", "final")
     g.add_edge("final", END)
     return g.compile()

@@ -15,6 +15,7 @@ EventType = Literal[
     "product_issue",
     "supply_chain",
     "regulatory",
+    "no_significant_news",  # Explicitly handle the case of no significant news
 ]
 
 

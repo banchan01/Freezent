@@ -2,13 +2,20 @@
 from __future__ import annotations
 import os
 import re
+import ast  # For safe evaluation of string literals
+import json # For serializing results
 from typing import Dict, List, Tuple, Any
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+
 from common.state import ReWOOState
 from common.utils import OPENAI_API_KEY
-REGEX = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*([A-Za-z0-9_]+)\[([^\]]+)\]"
+from clients.mcp_client import mcp_client # Import the MCP client
+
+# Updated regex to capture the new plan format: #E = tool_name[{'arg': 'value'}]
+REGEX = r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\[(.*)"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 
@@ -17,7 +24,7 @@ def _dbg(msg: str, payload: Dict[str, Any] | None = None):
         print(f"[BaseReWOO] {msg}")
         if payload:
             try:
-                import json
+                # Use the same json import as the main code
                 print(json.dumps(payload, ensure_ascii=False, indent=2)[:1500])
             except Exception:
                 print(str(payload)[:1500])
@@ -26,75 +33,40 @@ def _dbg(msg: str, payload: Dict[str, Any] | None = None):
 class BaseReWOO:
     def __init__(self, name: str, planner_prompt: str, model_name: str = "gpt-4o"):
         self.name = name
-        self.tools: Dict[str, callable] = {}
-
-        # ✅ 런타임에 환경변수 읽기 (모듈 임포트 타이밍 문제 회피)
-        self._use_mock = os.getenv("MOCK_LLM", "false").lower() == "true"
-
-        if self._use_mock:
-            # 프롬프트 파이프라인은 형식만 유지 (LLM 미호출)
-            self.planner = ChatPromptTemplate.from_messages([("user", planner_prompt)])
-            self.model = None
-        else:
-            # ✅ 지연 import: MOCK이 아닐 때만 OpenAI 클라이언트 로드
-            from langchain_openai import ChatOpenAI
-            self.model = ChatOpenAI(api_key=OPENAI_API_KEY, model=model_name)
-            self.planner = ChatPromptTemplate.from_messages([("user", planner_prompt)]) | self.model
-
+        self.model = ChatOpenAI(api_key=OPENAI_API_KEY, model=model_name)
+        self.planner = ChatPromptTemplate.from_messages([("user", planner_prompt)]) | self.model
         self.graph = self._build_graph()
 
-    def register_tools(self):
-        pass
-
-    # ---- Mock helpers ----
-    def _mock_plan_text(self, task: str) -> str:
-        return (
-            f"Plan: search relevant sources for the task\n"
-            f"#E1 = Google[{task}]\n"
-            f"Plan: summarize and structure the findings\n"
-            f"#E2 = LLM[#E1]\n"
-        )
-
-    def _mock_solve(self, task: str, plan: str, evidence: Dict[str, str]) -> str:
-        bullets = "\n".join(f"- {k}: {str(v)[:120]}" for k, v in (evidence or {}).items())
-        return (
-            "Summary (mock):\n"
-            f"Task: {task}\n\n"
-            "Plan used:\n"
-            f"{plan}\n"
-            "Evidence snippets:\n"
-            f"{bullets or '- (no evidence)'}\n"
-            "Conclusion: This is a mock response used for offline/dev mode."
-        )
-
     # ---- Planner ----
-    def _default_steps(self, task: str) -> List[Tuple[str, str, str, str]]:
-        return [("Minimal plan: search then solve", "#E1", "Google", task)]
+    def _default_steps(self, task: str) -> List[Tuple[str, str, str]]:
+        # Default step for a real run should indicate failure or a simple tool
+        return [("#E", "stock_info", f"{{'stock_name': '{task}'}}")]
 
     def get_plan(self, state: ReWOOState):
         task = state["task"]
-
-        if self._use_mock:
-            plan_text = self._mock_plan_text(task)
-            matches = re.findall(REGEX, plan_text)
-            _dbg("mock planner", {"plan_text": plan_text, "n_matches": len(matches)})
-            steps = matches if matches else self._default_steps(task)
-            return {"steps": steps, "plan_string": plan_text}
 
         try:
             result = (self.planner).invoke({"task": task})
             plan_text = getattr(result, "content", str(result))
         except Exception as e:
             _dbg("planner error; fallback to default steps", {"err": str(e)})
-            steps = self._default_steps(task)
-            return {"steps": steps, "plan_string": f"[planner-error] {e}"}
+            steps_3_tuple = self._default_steps(task)
+            steps_4_tuple = [("Plan from default", s[0], s[1], s[2]) for s in steps_3_tuple]
+            return {"steps": steps_4_tuple, "plan_string": f"[planner-error] {e}"}
 
+        # Use the new REGEX
         matches = re.findall(REGEX, plan_text)
         _dbg("planner output", {"plan_text": plan_text, "n_matches": len(matches)})
+        
         if not matches:
-            steps = self._default_steps(task)
-            return {"steps": steps, "plan_string": plan_text}
-        return {"steps": matches, "plan_string": plan_text}
+            steps_3_tuple = self._default_steps(task)
+        else:
+            # matches is a list of (step_name, tool, tool_input_str)
+            steps_3_tuple = matches
+
+        # The rest of the system expects a 4-tuple, so we add a dummy plan description.
+        steps_4_tuple = [("MCP Tool Call", s[0], s[1], s[2]) for s in steps_3_tuple]
+        return {"steps": steps_4_tuple, "plan_string": plan_text}
 
     # ---- Worker ----
     def _get_current_task(self, state: ReWOOState):
@@ -118,45 +90,63 @@ class BaseReWOO:
             })
             return {"results": state.get("results", {})}
 
-        _, step_name, tool, tool_input = state["steps"][step_idx - 1]
+        # Unpack the 4-tuple step
+        _, step_name, tool, tool_input_str = state["steps"][step_idx - 1]
 
         results = dict(state.get("results") or {})
+        # Replace placeholders like #E1 with actual results
         for k, v in results.items():
-            tool_input = tool_input.replace(k, v)
-
-        if tool not in self.tools:
-            _dbg("unknown tool; skipping", {"tool": tool})
-            results[step_name] = f"[error] unknown tool: {tool}"
-            return {"results": results}
+            tool_input_str = tool_input_str.replace(k, v)
 
         try:
-            out = self.tools[tool](tool_input)
+            # LLM tool is a special case that uses the main model
+            if tool == "LLM":
+                res = self.model.invoke(tool_input_str)
+                out = res.content
+            else:
+                # Use ast.literal_eval to safely parse the string into a dict
+                kwargs = ast.literal_eval(tool_input_str)
+                if not isinstance(kwargs, dict):
+                    raise TypeError("Tool input must be a dictionary.")
+                
+                # Invoke the tool using the MCP client
+                response = mcp_client.invoke(tool, **kwargs)
+                out = response.get("data") # Extract data from MCP response
+
         except Exception as e:
             _dbg("tool execution error", {"tool": tool, "err": str(e)})
             out = f"[tool-error:{tool}] {e}"
 
-        results[step_name] = str(out)
+        # Store the result. If it's a dict/list, store as JSON string. Otherwise, as is.
+        if isinstance(out, (dict, list)):
+            results[step_name] = json.dumps(out, ensure_ascii=False)
+        else:
+            results[step_name] = str(out)
+            
         return {"results": results}
 
     # ---- Solver ----
     def solve(self, state: ReWOOState):
         plan = ""
+        # The plan reconstruction needs to handle the new format
         for _plan, step_name, tool, tool_input in (state.get("steps") or []):
             results = dict(state.get("results") or {})
+            # Replace placeholders in the input string
             for k, v in results.items():
-                tool_input = tool_input.replace(k, v)
-                step_name = step_name.replace(k, v)
-            plan += f"Plan: {_plan}\n{step_name} = {tool}[{tool_input}]\n"
+                tool_input = tool_input.replace(k, v) # v is a JSON string here
+            
+            plan += f"{step_name} = {tool}[{tool_input}]\n"
 
-        if self._use_mock:
-            return {"result": self._mock_solve(state["task"], plan, state.get("results") or {})}
-
-        # 실제 LLM 경로
-        res = self.model.invoke(
-            "Solve the following task using the plan and evidence.\n\n"
-            + plan
-            + f"\nTask: {state['task']}\nResponse:"
-        )
+        # The original solver prompt might need adjustment if the final output format changes.
+        # For now, we assume the final summarization by LLM is still desired.
+        solve_prompt = (
+            "Solve the following task using the plan and evidence."
+            "\nThe evidence is provided as a JSON string in the plan execution result."
+            "\n"
+            f"Plan and Evidence:\n{plan}\n"
+            f"Task: {state['task']}\nResponse:")
+        
+        res = self.model.invoke(solve_prompt)
         return {"result": res.content}
 
     # ---- Graph wiring ----
@@ -164,7 +154,7 @@ class BaseReWOO:
         return "solve" if self._get_current_task(state) is None else "tool"
 
     def _build_graph(self):
-        self.register_tools()
+        # register_tools is no longer needed
         g = StateGraph(ReWOOState)
         g.add_node("plan", self.get_plan)
         g.add_node("tool", self.tool_execution)
