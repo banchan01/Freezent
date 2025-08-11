@@ -5,16 +5,11 @@ import torch
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-import httpx
 import time
 import os
-import os
-import time
 import glob
 from datetime import datetime
 from typing import Optional
-
-import pandas as pd
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -23,6 +18,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.chrome import ChromeDriverManager
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
