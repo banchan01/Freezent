@@ -15,7 +15,7 @@ from common.utils import OPENAI_API_KEY
 from clients.mcp_client import mcp_client # Import the MCP client
 
 # Updated regex to capture the new plan format: #E = tool_name[{'arg': 'value'}]
-REGEX = r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\[(.*)"
+REGEX = r"([#A-Za-z0-9_]+)\\s*=\\s*([a-zA-Z0-9_]+)\\[(\\{.*\\})\\]"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 
@@ -57,6 +57,8 @@ class BaseReWOO:
         # Use the new REGEX
         matches = re.findall(REGEX, plan_text)
         _dbg("planner output", {"plan_text": plan_text, "n_matches": len(matches)})
+        print("\n>> Plan Generated:")
+        print(plan_text)
         
         if not matches:
             steps_3_tuple = self._default_steps(task)
@@ -93,6 +95,9 @@ class BaseReWOO:
         # Unpack the 4-tuple step
         _, step_name, tool, tool_input_str = state["steps"][step_idx - 1]
 
+        print(f"\n>> Calling Tool: {tool} (step {step_idx})")
+        print(f"   Input: {tool_input_str}")
+
         results = dict(state.get("results") or {})
         # Replace placeholders like #E1 with actual results
         for k, v in results.items():
@@ -117,6 +122,18 @@ class BaseReWOO:
             _dbg("tool execution error", {"tool": tool, "err": str(e)})
             out = f"[tool-error:{tool}] {e}"
 
+        print(f"\n>> Tool Result ({tool}):")
+        try:
+            if isinstance(out, (dict, list)):
+                print(json.dumps(out, ensure_ascii=False, indent=2))
+            elif isinstance(out, str) and ('{' in out or '[' in out):
+                 parsed_out = json.loads(out)
+                 print(json.dumps(parsed_out, ensure_ascii=False, indent=2))
+            else:
+                print(out)
+        except Exception:
+            print(out)
+
         # Store the result. If it's a dict/list, store as JSON string. Otherwise, as is.
         if isinstance(out, (dict, list)):
             results[step_name] = json.dumps(out, ensure_ascii=False)
@@ -140,11 +157,11 @@ class BaseReWOO:
         # The original solver prompt might need adjustment if the final output format changes.
         # For now, we assume the final summarization by LLM is still desired.
         solve_prompt = (
-            "Solve the following task using the plan and evidence."
-            "\nThe evidence is provided as a JSON string in the plan execution result."
-            "\n"
+            "Solve the following task using the plan and evidence.\n"
+            "The evidence is provided as a JSON string in the plan execution result.\n\n"
             f"Plan and Evidence:\n{plan}\n"
-            f"Task: {state['task']}\nResponse:")
+            f"Task: {state['task']}\nResponse:"
+        )
         
         res = self.model.invoke(solve_prompt)
         return {"result": res.content}
