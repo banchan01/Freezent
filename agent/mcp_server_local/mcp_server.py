@@ -5,6 +5,7 @@ from tools.news.news_tool import register as register_news
 from tools.floating_stock.floating_stock_tool import register as register_floating_stock
 from tools.biz_perf.biz_perf_tool import register as register_biz_perf
 from tools.corp_info.corp_info_tool import register as register_corp_info
+from tools.lstm_model.lstm_model_tool import register as register_lstm_model
 
 
 def create_app() -> FastMCP:
@@ -17,6 +18,7 @@ def create_app() -> FastMCP:
     register_floating_stock(mcp)
     register_biz_perf(mcp)
     register_corp_info(mcp)
+    register_lstm_model(mcp)
     return mcp
 
 
