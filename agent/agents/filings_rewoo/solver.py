@@ -126,10 +126,14 @@ def filings_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
         )
     ]
 
+    rationale = " ".join(stats.get("summaries", []))
+    if not rationale:
+        rationale = "No significant summary from filings."
+
     return DomainResult(
         domain="filing",
         ticker=ticker,
         events=events,
         domain_risk_score=score,
-        rationale="heuristic(filing): counts+keywords from MCP responses with safe defaults",
+        rationale=rationale,  # 요약 정보를 rationale에 담아 전달
     )

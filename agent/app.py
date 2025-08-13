@@ -57,14 +57,13 @@ def main():
         if "final" in state and "final_report" in state["final"]:
             _pp("final_report", state["final"]["final_report"])
 
-    # 안전하게 마지막 결과 한 번 더 출력
+    # 루프가 끝난 후 최종 상태의 final_report만 한 번 출력
     final_report = (last.get("final") or {}).get("final_report")
-    print("\n---")
-    print("Final Report JSON:")
-    try:
-        print(json.dumps(final_report, ensure_ascii=False, indent=2))
-    except Exception:
-        print(final_report)
+    if final_report:
+        _pp("final_report", final_report)
+    else:
+        print("\n---")
+        print("Final Report could not be generated.")
 
 
 if __name__ == "__main__":

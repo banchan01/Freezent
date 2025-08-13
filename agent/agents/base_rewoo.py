@@ -6,6 +6,7 @@ import re
 import json
 import asyncio
 from typing import Dict, List, Tuple, Any
+from datetime import datetime, timedelta
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.prompts import ChatPromptTemplate
@@ -96,7 +97,8 @@ class BaseReWOO:
     def __init__(self, name: str, planner_prompt: str, model_name: str = "gpt-4o"):
         self.name = name
         self.model = ChatOpenAI(api_key=OPENAI_API_KEY, model=model_name)
-        self.planner = ChatPromptTemplate.from_messages([("user", planner_prompt)]) | self.model
+        self.planner_prompt_template = planner_prompt  # Store the raw template string
+        self.planner = ChatPromptTemplate.from_template(self.planner_prompt_template) | self.model
 
         # MCP 서버에서 도구 로드
         try:
@@ -136,9 +138,28 @@ class BaseReWOO:
 
     def get_plan(self, state: ReWOOState):
         task = state["task"]
+        
+        # 동적 프롬프트 변수 설정
+        prompt_inputs = {"task": task}
+        if self.name == "filing":
+            today = datetime.now()
+            prompt_inputs["today_str"] = today.strftime('%Y%m%d')
+            # horizon 파싱 (예: '30d' -> 30)
+            horizon_days = 30  # 기본값
+            if state.get("horizon"):
+                match = re.search(r'(\d+)', str(state["horizon"]))
+                if match:
+                    horizon_days = int(match.group(1))
+            
+            thirty_days_ago = today - timedelta(days=horizon_days)
+            prompt_inputs["date_30_days_ago"] = thirty_days_ago.strftime('%Y%m%d')
+
         try:
-            result = self.planner.invoke({"task": task})
+            # ChatPromptTemplate을 사용하여 변수 주입
+            prompt = ChatPromptTemplate.from_template(self.planner_prompt_template)
+            result = (prompt | self.model).invoke(prompt_inputs)
             plan_text = getattr(result, "content", str(result))
+            
         except Exception as e:
             print(f"\n>> ERROR: Planner for agent '{self.name}' failed: {e}")
             _dbg("planner error; fallback to default steps", {"err": str(e)})
@@ -191,25 +212,31 @@ class BaseReWOO:
 
             # ── LLM 스텝 ───────────────────────────────────────────────────────
             if tool_name == "LLM":
-                # 대괄호 안 문자열을 껍데기 제거 후, #E? 참조를 JSON literal로 주입
                 llm_prompt_raw = _strip_wrapping_quotes(tool_input_str)
                 llm_prompt_resolved = _resolve_placeholders_to_json_literal(llm_prompt_raw, results)
 
-                # 정확도 향상을 위해 '숫자만' 요청 추가 (필요 시 제거 가능)
-                llm_prompt_resolved += "\n\nReturn only the 8-digit corp_code (digits only), no extra text."
+                # Case 1: 고유번호(corp_code) 추출 전용 로직
+                if "corp_code" in llm_prompt_resolved.lower():
+                    # 정확도 향상을 위해 '숫자만' 요청 추가
+                    prompt = llm_prompt_resolved + "\n\nReturn only the 8-digit corp_code (digits only), no extra text."
+                    out_msg = tool.invoke(prompt)
+                    out_text = getattr(out_msg, "content", str(out_msg))
 
-                out_msg = tool.invoke(llm_prompt_resolved)  # ChatOpenAI.invoke -> AIMessage
-                out_text = getattr(out_msg, "content", str(out_msg))
+                    # 폴백용: 프롬프트에 등장한 마지막 참조(#E1 등)를 JSON으로 로드해서 전달
+                    fallback_obj = None
+                    refs = REF_PAT.findall(llm_prompt_raw)
+                    if refs:
+                        fallback_obj = _maybe_json_loads(results.get(refs[-1]))
 
-                # 폴백용: 프롬프트에 등장한 마지막 참조(#E1 등)를 JSON으로 로드해서 전달
-                fallback_obj = None
-                refs = REF_PAT.findall(llm_prompt_raw)
-                if refs:
-                    fallback_obj = _maybe_json_loads(results.get(refs[-1]))
+                    corp_code = _postprocess_corp_code(out_text, fallback_json=fallback_obj)
+                    results[step_name] = corp_code  # '#E2'에는 오직 '00126380' 같은 원자값만 저장
+                    out = corp_code
 
-                corp_code = _postprocess_corp_code(out_text, fallback_json=fallback_obj)
-                results[step_name] = corp_code  # '#E2'에는 오직 '00126380' 같은 원자값만 저장
-                out = corp_code
+                # Case 2: 그 외 일반적인 LLM 질의
+                else:
+                    out_msg = tool.invoke(llm_prompt_resolved)
+                    out = getattr(out_msg, "content", str(out_msg))
+                    results[step_name] = out
 
             # ── 일반 도구 ────────────────────────────────────────────────────
             else:
