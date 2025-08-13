@@ -19,7 +19,7 @@ def _parse_date(date_str: str | None) -> datetime | None:
         return None
 
 
-def news_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
+def news_postprocess(ticker: str, raw_steps: Dict[str, Any]) -> DomainResult:
     """
     MCP 'analyze_stock_news' 도구의 JSON 출력물을 파싱하여 DomainResult를 생성합니다.
     - 각 기사 항목을 Evidence로 변환합니다.
@@ -29,12 +29,19 @@ def news_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
     all_events: List[DomainEvent] = []
     all_evidences: List[Evidence] = []
     max_severity = 0.0
-
-    # BaseReWOO의 결과는 '#E' 단계에 JSON 문자열로 저장됩니다.
-    payload_str = (raw_steps or {}).get("#E", "{}")
+    
+    step_output = (raw_steps or {}).get("#E1", {}) # Assume single-step plan for news
+    
+    data = None
+    if isinstance(step_output, dict):
+        data = step_output
+    elif isinstance(step_output, str):
+        try:
+            data = json.loads(step_output)
+        except (json.JSONDecodeError, TypeError):
+            data = {}
 
     try:
-        data = json.loads(payload_str)
         articles = data.get("기사목록", []) if isinstance(data, dict) else []
 
         for article in articles:

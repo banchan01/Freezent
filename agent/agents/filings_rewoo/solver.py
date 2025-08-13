@@ -93,7 +93,7 @@ def _score_from_filings(stats: Dict[str, Any]) -> float:
     return _clamp01(base + boosts)
 
 
-def filings_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
+def filings_postprocess(ticker: str, raw_steps: Dict[str, Any]) -> DomainResult:
     stats = _extract_counts_and_hints(raw_steps)
     score = _score_from_filings(stats)
 

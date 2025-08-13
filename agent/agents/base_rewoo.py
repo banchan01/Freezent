@@ -22,8 +22,104 @@ from clients.mcp_adapter_client import load_mcp_tools
 # ──────────────────────────────────────────────────────────────────────────────
 
 # "#E1 = tool_name[ ... ]" 대괄호 내부가 문자열이든 dict든 모두 매칭
-REGEX = r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\[(.*?)\]"
-DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+# 기존
+# REGEX = r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\[(.*?)\]"
+# 새로 추가
+STEP_HEAD_RE = re.compile(r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_\-\.]+)\s*\[")
+CODEBLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_\-]+)?\s*(.*?)```", re.S)
+
+DEBUG = "true"
+
+def _first_codeblock_or_self(text: str) -> str:
+    m = CODEBLOCK_RE.search(text)
+    return m.group(1).strip() if m else text.strip()
+
+def _try_parse_json_plan(plan_text: str) -> List[Tuple[str, str, str]]:
+    """
+    JSON 스타일 플랜도 허용:
+    [
+      {"step":"#E1","tool":"get_corp_info","input":{"stock_name":"삼성전자"}},
+      ...
+    ]
+    """
+    try:
+        obj = json.loads(plan_text)
+        if isinstance(obj, list):
+            out = []
+            for i, it in enumerate(obj, 1):
+                step = str(it.get("step") or f"#E{i}")
+                tool = str(it["tool"])
+                # JSON을 문자열 리터럴로 다시 감싸 도구 입력 형식과 동일화
+                tool_input = _json_dumps(it.get("input", {}))
+                out.append((step, tool, tool_input))
+            return out
+    except Exception:
+        pass
+    return []
+
+def _extract_bracket_payload(s: str, start_idx: int) -> Tuple[str, int]:
+    """
+    s[start_idx]는 여는 '[' 직후 위치라고 가정.
+    문자열 리터럴/이스케이프를 고려하며 매칭되는 ']'까지 슬라이스를 반환.
+    반환: (내용문자열, 닫힌인덱스)
+    """
+    i = start_idx
+    depth = 1
+    in_str = None
+    esc = False
+    while i < len(s):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == in_str:
+                in_str = None
+        else:
+            if ch in ('"', "'"):
+                in_str = ch
+            elif ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    return s[start_idx:i], i
+        i += 1
+    # 닫히지 않으면 끝까지 반환
+    return s[start_idx:], len(s) - 1
+
+def _extract_steps_robust(plan_text: str) -> List[Tuple[str, str, str]]:
+    """
+    - 코드블럭 우선 추출
+    - JSON 플랜 시도
+    - 헤더 정규식 + 대괄호 밸런싱 파서
+    반환: [(step_name, tool_name, tool_input_str), ...]
+    """
+    text = _first_codeblock_or_self(plan_text)
+
+    # 1) JSON 플랜 먼저 시도
+    json_steps = _try_parse_json_plan(text)
+    if json_steps:
+        return json_steps
+
+    # 2) 헤더 정규식 스캔 + 밸런싱
+    out = []
+    i = 0
+    while True:
+        m = STEP_HEAD_RE.search(text, i)
+        if not m:
+            break
+        step_name = m.group(1).strip()
+        tool_name = m.group(2).strip()
+        # 여는 '['의 바로 다음 인덱스 계산
+        open_bracket_idx = m.end()  # 헤더 정규식이 '['까지 소비함
+        payload, close_idx = _extract_bracket_payload(text, open_bracket_idx)
+        tool_input_str = payload.strip()
+        out.append((step_name, tool_name, tool_input_str))
+        i = close_idx + 1
+    return out
+
 
 def _dbg(msg: str, payload: Dict[str, Any] | None = None):
     if DEBUG:
@@ -167,14 +263,20 @@ class BaseReWOO:
             steps_4_tuple = [("Plan from default", s[0], s[1], s[2]) for s in steps_3_tuple]
             return {"steps": steps_4_tuple, "plan_string": f"[planner-error] {e}"}
 
-        matches = re.findall(REGEX, plan_text, flags=re.S)
-        _dbg("planner output", {"plan_text": plan_text, "n_matches": len(matches)})
-        print("\n>> Plan Generated:")
-        print(plan_text)
+        # LLM 응답에서 "Plan:" 이후의 실제 계획만 추출하고, 마크다운/공백 정리
+        if "Plan:" in plan_text:
+            plan_text = plan_text.split("Plan:", 1)[1]
 
-        steps_3_tuple = matches if matches else self._default_steps(task)
-        steps_4_tuple = [("MCP Tool Call", s[0], s[1], s[2]) for s in steps_3_tuple]
-        return {"steps": steps_4_tuple, "plan_string": plan_text}
+            # ✅ 새 파서 사용
+            matches = _extract_steps_robust(plan_text)
+
+            _dbg("planner output", {"plan_text": plan_text[:1000], "n_matches": len(matches)})
+            print("\n>> Plan Generated:")
+            print(plan_text)
+
+            steps_3_tuple = matches if matches else self._default_steps(task)
+            steps_4_tuple = [("MCP Tool Call", s[0], s[1], s[2]) for s in steps_3_tuple]
+            return {"steps": steps_4_tuple, "plan_string": plan_text}
 
     # ── Worker ────────────────────────────────────────────────────────────────
     def _get_current_task(self, state: ReWOOState):
@@ -340,7 +442,15 @@ class BaseReWOO:
             "results": {},
             "result": "",
         }
-        out = None
-        for s in self.graph.stream(state):
-            out = s
-        return out
+        try:
+            final_state = self.graph.invoke(state)
+        except Exception:
+            # invoke가 안 되는 환경이면 스트리밍 델타를 수집해 최종 상태를 수동 병합
+            final_state = state.copy()
+            for delta in self.graph.stream(state):
+                # delta는 {"plan": {...}} / {"tool": {...}} / {"solve": {...}} 꼴
+                for _node, upd in delta.items():
+                    if isinstance(upd, dict):
+                        # 노드가 반환한 "부분 상태"를 상위 상태에 머지
+                        final_state.update(upd)
+        return final_state

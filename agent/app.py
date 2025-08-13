@@ -28,6 +28,7 @@ def main():
         "task": "Assess combined risk from news & filings",
         "news_result": None,
         "filing_result": None,
+        "lstm_result": None,
         "final_report": None,
     }
 
@@ -40,18 +41,25 @@ def main():
         if "meta_plan" in state:
             _pp("meta_plan", state["meta_plan"])
 
-        if "news" in state:
+        if "news" in state and state["news"]:
             _pp("news", {
                 "domain": "news",
                 "domain_risk_score": state["news"]["news_result"].domain_risk_score
                 if state["news"]["news_result"] else None
             })
 
-        if "filings" in state:
+        if "filings" in state and state["filings"]:
             _pp("filings", {
                 "domain": "filing",
                 "domain_risk_score": state["filings"]["filing_result"].domain_risk_score
                 if state["filings"]["filing_result"] else None
+            })
+
+        if "lstm" in state and state["lstm"]:
+            _pp("lstm", {
+                "domain": "lstm_anomaly",
+                "domain_risk_score": state["lstm"]["lstm_result"].domain_risk_score
+                if state["lstm"]["lstm_result"] else None
             })
 
         if "final" in state and "final_report" in state["final"]:
