@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from common.state import MetaState
 from orchestration.meta_planner import make_domain_tasks
-from orchestration.fusion_solver import fusion_solver_node
+from orchestration.fusion_solver import fuse
 
 from agents.base_rewoo import BaseReWOO
 
@@ -68,6 +68,11 @@ def run_filings(state: MetaState):
     return {"filing_result": domain}
 
 
+def final_solve(state: MetaState) -> Dict[str, Any]:
+    report = fuse(state["news_result"], state["filing_result"], state["ticker"], state["horizon"])
+    return {"final_report": report.model_dump()}
+
+
 # ---- Build Meta Graph ----
 
 def build_meta_graph():
@@ -75,7 +80,7 @@ def build_meta_graph():
     g.add_node("meta_plan", meta_plan)
     g.add_node("news", run_news)
     g.add_node("filings", run_filings)
-    g.add_node("final", fusion_solver_node)
+    g.add_node("final", final_solve)
 
     g.add_edge(START, "meta_plan")
     # news, filings 병렬 실행
