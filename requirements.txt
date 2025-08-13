@@ -153,3 +153,11 @@ Werkzeug==3.1.1
 wsproto==1.2.0
 xlrd==2.0.2
 yfinance==0.2.52
+langgraph>=0.2.0
+langchain_community>=0.2.0
+langchain-openai>=0.2.0
+langchain-tavily>=0.1.0
+pydantic>=2.6
+tavily-python>=0.5.0
+python-dotenv>=1.0.1
+langchain-mcp-adapters

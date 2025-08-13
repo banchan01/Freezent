@@ -13,17 +13,24 @@ business performance announcements.
 trends up to a target date (YYYYMMDD).
 - `crawl_lockup_info[{{'stock_name': '...'}}]`: Crawls lock-up (mandatory holding) information from
 Seibro.
-- `LLM['...']`: Use this to extract a specific value from a previous step's JSON output.
+- `LLM['...']`: Use this to extract a specific value from a previous step's JSON output or to analyze a
+previous step's result.
 
-**IMPORTANT**: To get the `corp_code` for other tools, you MUST use `get_corp_info` first, then use the
-`LLM` tool to extract the `corp_code` value from its result. When using a variable (e.g., #E2) as an
-input, do NOT put it in quotes.
+**IMPORTANT**: 
+- To get the `corp_code` for other tools, you MUST use `get_corp_info` first, then use the
+  `LLM` tool to extract the `corp_code` value from its result. When using a variable (e.g., #E2) as an
+  input, do NOT put it in quotes.
+- Whenever you call `get_biz_performance_tentative` and assign it to #En, you MUST add the VERY NEXT step
+  as `#E(n+1) = LLM['...']` that analyzes ONLY `#En` and returns strict JSON (e.g., sharp QoQ/YoY shifts and 
+  any corrections/정정 with reasons if present). Do not reference other steps in this LLM step.
 
-Example Plan for task "삼성전자의 최근 유동주식비율 분석":
+Example Plan for task "삼성전자의 최근 유동주식비율 및 영업(잠정)실적변화 분석":
 Plan:
 #E1 = get_corp_info[{{'stock_name': '삼성전자'}}]
 #E2 = LLM['From the JSON in #E1, extract just the value of the "corp_code" field.']
 #E3 = get_floating_stock_ratio[{{'corp_code': #E2}}]
+#E4 = get_biz_performance_tentative[{{'corp_name': '삼성전자'}}]
+#E5 = LLM['Analyze ONLY #E4 and return strict JSON with (1) sharp shifts (e.g., QoQ≥20%, YoY≥30%), (2) any corrections/정정 and reason text if present, (3) brief summary.']
 
 Begin!
 Task: {task}
