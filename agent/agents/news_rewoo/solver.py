@@ -6,7 +6,28 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from common.schemas import DomainResult, DomainEvent, Evidence
+from langchain_openai import ChatOpenAI
+from common.utils import OPENAI_API_KEY
 
+def _build_llm_report_news(ticker: str, raw_steps: Dict[str, Any]) -> str:
+    try:
+        model = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini", temperature=0.2)
+        steps_preview = json.dumps(raw_steps, ensure_ascii=False, default=str)
+        if len(steps_preview) > 6000:
+            steps_preview = steps_preview[:6000] + " ... (truncated)"
+        prompt = (
+            f"Analyze the following extracted news evidence for '{ticker}'.\n"
+            f"Steps(JSON):\n{steps_preview}\n\n"
+            "Instructions:\n"
+            "- Summarize key events that drive risk (what, when, why it matters).\n"
+            "- Separate bull vs bear signals if both exist.\n"
+            "- Provide a one-sentence verdict on news-driven risk.\n"
+            "Return a concise markdown report (no code blocks)."
+        )
+        res = model.invoke(prompt)
+        return getattr(res, "content", str(res)).strip()[:5000]
+    except Exception as e:
+        return f"[llm_report_error] {e}"
 
 def _parse_date(date_str: str | None) -> datetime | None:
     """'YY.MM.DD' 형식의 문자열을 datetime으로 변환 시도"""
@@ -99,6 +120,7 @@ def news_postprocess(ticker: str, raw_steps: Dict[str, Any]) -> DomainResult:
             )
         )
         max_severity = 0.1
+    llm_report = _build_llm_report_news(ticker, raw_steps)
 
     return DomainResult(
         domain="news",
@@ -106,4 +128,5 @@ def news_postprocess(ticker: str, raw_steps: Dict[str, Any]) -> DomainResult:
         events=all_events,
         domain_risk_score=max_severity,
         rationale="위험 점수는 MCP 뉴스 분석 결과의 최대 심각도입니다.",
+        llm_report=llm_report,
     )

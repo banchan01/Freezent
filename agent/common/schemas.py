@@ -38,7 +38,7 @@ class DomainEvent(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     timestamp: Optional[datetime] = None
     evidence: List[Evidence] = []
-
+    
 
 class DomainResult(BaseModel):
     domain: Literal["news", "filing", "lstm_anomaly"]
@@ -46,7 +46,7 @@ class DomainResult(BaseModel):
     events: List[DomainEvent] = []
     domain_risk_score: float = Field(ge=0.0, le=1.0)
     rationale: str
-
+    llm_report: Optional[str] = None
 
 class FinalRiskReport(BaseModel):
     ticker: str
@@ -58,3 +58,4 @@ class FinalRiskReport(BaseModel):
     method: str = "weighted_fusion:v1"
     details: Dict[str, Any] = {}
     citations: List[Evidence] = []
+    llm_report: Optional[str] = None
