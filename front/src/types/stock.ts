@@ -11,6 +11,7 @@ export interface StockReport {
     value: string
     status: "positive" | "negative" | "neutral"
   }[]
+  llmReport?: string
 }
 
 export interface DailyMover {
