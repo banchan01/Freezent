@@ -65,8 +65,17 @@ def _as_dict(x: Any) -> Dict[str, Any]:
 def main():
     app = build_meta_graph()
 
+    # === 회사 이름 입력 받기 ===
+    default_ticker = os.getenv("TEST_TICKER", "삼성전자")
+    try:
+        user_ticker = input(f"회사명을 입력하세요 (기본: {default_ticker}): ").strip()
+    except EOFError:
+        user_ticker = ""
+    ticker = user_ticker or default_ticker
+    # ===================================
+
     init = {
-        "ticker": os.getenv("TEST_TICKER", "삼성전자"),
+        "ticker": ticker,  # ← 입력값 반영
         "horizon": os.getenv("TEST_HORIZON", "30d"),
         "task": "Assess combined risk from news & filings",
         "news_result": None,

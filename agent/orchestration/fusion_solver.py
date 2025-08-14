@@ -74,23 +74,25 @@ def _build_final_llm_report_with_llm(
 
         # 프롬프트(지시문은 간결/명확하게)
         prompt = (
-            "You are a senior equity risk analyst. Write a concise, decision-grade final risk summary.\n\n"
+            "프롬프트는 영어지만 최종보고서는 한국어로 주십시오."
+            "You are a senior market manipulation risk analyst. Write a concise, decision-grade final risk summary focusing specifically on potential stock manipulation.\n\n"
             f"Company: {ticker}\n"
             f"Horizon: {horizon or 'N/A'}\n"
             f"Weights: {json.dumps(weights, ensure_ascii=False)}\n"
             f"Final Score: {final_score:.4f}\n\n"
             "Each domain below includes: score, events, rationale, and (if present) its own llm_report.\n"
             "Your tasks:\n"
-            "1) Synthesize the domain insights into a single coherent narrative.\n"
-            "2) Highlight the most material drivers and any conflicts/uncertainties.\n"
-            "3) Provide 1–2 actionable implications.\n"
-            "4) End with a one-sentence verdict (LOW/MODERATE/ELEVATED) consistent with the scores.\n\n"
+            "1) Synthesize the domain insights into a single coherent narrative that focuses on manipulation risks.\n"
+            "2) Highlight the most material drivers of potential manipulation — especially suspicious trading patterns, rumor-based sentiment shifts, and irregular filings.\n"
+            "3) Clearly indicate any conflicts, gaps, or uncertainties in the evidence.\n"
+            "4) Provide 1–2 actionable implications for regulatory surveillance or internal investigation.\n"
+            "5) End with a one-sentence verdict (LOW / MODERATE / ELEVATED) consistent with the scores.\n\n"
             "Return a short markdown report (no code blocks). Use clear section headers.\n\n"
-            "=== News Domain ===\n"
+            "=== News (Rumor) Domain ===\n"
             f"{_preview_json(news_d)}\n\n"
-            "=== Filings Domain ===\n"
+            "=== Filings (Manipulation-Related) Domain ===\n"
             f"{_preview_json(filing_d)}\n\n"
-            "=== LSTM Anomaly Domain ===\n"
+            "=== LSTM-AE Time-Series Anomaly Domain ===\n"
             f"{_preview_json(lstm_d)}\n"
         )
 
