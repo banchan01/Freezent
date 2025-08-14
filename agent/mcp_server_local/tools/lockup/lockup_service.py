@@ -3,6 +3,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException
 import time
 import os
 import json
@@ -267,7 +268,18 @@ def crawl_lockup_info(stock_name: str):
         WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "group64"))
         ).click()
-        time.sleep(0.8)  # 데이터 로딩 대기
+        time.sleep(1.5)  # 데이터 로딩 대기
+
+        # Step 9.5: "조회된 데이터가 없습니다" 메시지 확인
+        try:
+            no_data_xpath = "//*[@id='grid1_body_tbody']/tr/td[contains(text(), '조회된 데이터가 없습니다.')]"
+            no_data_element = driver.find_element(By.XPATH, no_data_xpath)
+            if no_data_element.is_displayed():
+                print(f"'{stock_name}'에 대한 보호예수 정보 없음. 빈 DataFrame을 반환합니다.")
+                return pd.DataFrame()
+        except NoSuchElementException:
+            # 데이터가 존재하므로 계속 진행
+            pass
 
         # Step 10: 엑셀 다운로드 버튼 클릭
         WebDriverWait(driver, 10).until(

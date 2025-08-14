@@ -6,6 +6,7 @@ import re
 import json
 import asyncio
 from typing import Dict, List, Tuple, Any
+from datetime import datetime, timedelta
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.prompts import ChatPromptTemplate
@@ -21,8 +22,104 @@ from clients.mcp_adapter_client import load_mcp_tools
 # ──────────────────────────────────────────────────────────────────────────────
 
 # "#E1 = tool_name[ ... ]" 대괄호 내부가 문자열이든 dict든 모두 매칭
-REGEX = r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\[(.*?)\]"
-DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+# 기존
+# REGEX = r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\[(.*?)\]"
+# 새로 추가
+STEP_HEAD_RE = re.compile(r"([#A-Za-z0-9_]+)\s*=\s*([a-zA-Z0-9_\-\.]+)\s*\[")
+CODEBLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_\-]+)?\s*(.*?)```", re.S)
+
+DEBUG = "true"
+
+def _first_codeblock_or_self(text: str) -> str:
+    m = CODEBLOCK_RE.search(text)
+    return m.group(1).strip() if m else text.strip()
+
+def _try_parse_json_plan(plan_text: str) -> List[Tuple[str, str, str]]:
+    """
+    JSON 스타일 플랜도 허용:
+    [
+      {"step":"#E1","tool":"get_corp_info","input":{"stock_name":"삼성전자"}},
+      ...
+    ]
+    """
+    try:
+        obj = json.loads(plan_text)
+        if isinstance(obj, list):
+            out = []
+            for i, it in enumerate(obj, 1):
+                step = str(it.get("step") or f"#E{i}")
+                tool = str(it["tool"])
+                # JSON을 문자열 리터럴로 다시 감싸 도구 입력 형식과 동일화
+                tool_input = _json_dumps(it.get("input", {}))
+                out.append((step, tool, tool_input))
+            return out
+    except Exception:
+        pass
+    return []
+
+def _extract_bracket_payload(s: str, start_idx: int) -> Tuple[str, int]:
+    """
+    s[start_idx]는 여는 '[' 직후 위치라고 가정.
+    문자열 리터럴/이스케이프를 고려하며 매칭되는 ']'까지 슬라이스를 반환.
+    반환: (내용문자열, 닫힌인덱스)
+    """
+    i = start_idx
+    depth = 1
+    in_str = None
+    esc = False
+    while i < len(s):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == in_str:
+                in_str = None
+        else:
+            if ch in ('"', "'"):
+                in_str = ch
+            elif ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    return s[start_idx:i], i
+        i += 1
+    # 닫히지 않으면 끝까지 반환
+    return s[start_idx:], len(s) - 1
+
+def _extract_steps_robust(plan_text: str) -> List[Tuple[str, str, str]]:
+    """
+    - 코드블럭 우선 추출
+    - JSON 플랜 시도
+    - 헤더 정규식 + 대괄호 밸런싱 파서
+    반환: [(step_name, tool_name, tool_input_str), ...]
+    """
+    text = _first_codeblock_or_self(plan_text)
+
+    # 1) JSON 플랜 먼저 시도
+    json_steps = _try_parse_json_plan(text)
+    if json_steps:
+        return json_steps
+
+    # 2) 헤더 정규식 스캔 + 밸런싱
+    out = []
+    i = 0
+    while True:
+        m = STEP_HEAD_RE.search(text, i)
+        if not m:
+            break
+        step_name = m.group(1).strip()
+        tool_name = m.group(2).strip()
+        # 여는 '['의 바로 다음 인덱스 계산
+        open_bracket_idx = m.end()  # 헤더 정규식이 '['까지 소비함
+        payload, close_idx = _extract_bracket_payload(text, open_bracket_idx)
+        tool_input_str = payload.strip()
+        out.append((step_name, tool_name, tool_input_str))
+        i = close_idx + 1
+    return out
+
 
 def _dbg(msg: str, payload: Dict[str, Any] | None = None):
     if DEBUG:
@@ -96,7 +193,8 @@ class BaseReWOO:
     def __init__(self, name: str, planner_prompt: str, model_name: str = "gpt-4o"):
         self.name = name
         self.model = ChatOpenAI(api_key=OPENAI_API_KEY, model=model_name)
-        self.planner = ChatPromptTemplate.from_messages([("user", planner_prompt)]) | self.model
+        self.planner_prompt_template = planner_prompt  # Store the raw template string
+        self.planner = ChatPromptTemplate.from_template(self.planner_prompt_template) | self.model
 
         # MCP 서버에서 도구 로드
         try:
@@ -136,9 +234,28 @@ class BaseReWOO:
 
     def get_plan(self, state: ReWOOState):
         task = state["task"]
+        
+        # 동적 프롬프트 변수 설정
+        prompt_inputs = {"task": task}
+        if self.name == "filing":
+            today = datetime.now()
+            prompt_inputs["today_str"] = today.strftime('%Y%m%d')
+            # horizon 파싱 (예: '30d' -> 30)
+            horizon_days = 30  # 기본값
+            if state.get("horizon"):
+                match = re.search(r'(\d+)', str(state["horizon"]))
+                if match:
+                    horizon_days = int(match.group(1))
+            
+            thirty_days_ago = today - timedelta(days=horizon_days)
+            prompt_inputs["date_30_days_ago"] = thirty_days_ago.strftime('%Y%m%d')
+
         try:
-            result = self.planner.invoke({"task": task})
+            # ChatPromptTemplate을 사용하여 변수 주입
+            prompt = ChatPromptTemplate.from_template(self.planner_prompt_template)
+            result = (prompt | self.model).invoke(prompt_inputs)
             plan_text = getattr(result, "content", str(result))
+            
         except Exception as e:
             print(f"\n>> ERROR: Planner for agent '{self.name}' failed: {e}")
             _dbg("planner error; fallback to default steps", {"err": str(e)})
@@ -146,14 +263,20 @@ class BaseReWOO:
             steps_4_tuple = [("Plan from default", s[0], s[1], s[2]) for s in steps_3_tuple]
             return {"steps": steps_4_tuple, "plan_string": f"[planner-error] {e}"}
 
-        matches = re.findall(REGEX, plan_text, flags=re.S)
-        _dbg("planner output", {"plan_text": plan_text, "n_matches": len(matches)})
-        print("\n>> Plan Generated:")
-        print(plan_text)
+        # LLM 응답에서 "Plan:" 이후의 실제 계획만 추출하고, 마크다운/공백 정리
+        if "Plan:" in plan_text:
+            plan_text = plan_text.split("Plan:", 1)[1]
 
-        steps_3_tuple = matches if matches else self._default_steps(task)
-        steps_4_tuple = [("MCP Tool Call", s[0], s[1], s[2]) for s in steps_3_tuple]
-        return {"steps": steps_4_tuple, "plan_string": plan_text}
+            # ✅ 새 파서 사용
+            matches = _extract_steps_robust(plan_text)
+
+            _dbg("planner output", {"plan_text": plan_text[:1000], "n_matches": len(matches)})
+            print("\n>> Plan Generated:")
+            print(plan_text)
+
+            steps_3_tuple = matches if matches else self._default_steps(task)
+            steps_4_tuple = [("MCP Tool Call", s[0], s[1], s[2]) for s in steps_3_tuple]
+            return {"steps": steps_4_tuple, "plan_string": plan_text}
 
     # ── Worker ────────────────────────────────────────────────────────────────
     def _get_current_task(self, state: ReWOOState):
@@ -191,25 +314,31 @@ class BaseReWOO:
 
             # ── LLM 스텝 ───────────────────────────────────────────────────────
             if tool_name == "LLM":
-                # 대괄호 안 문자열을 껍데기 제거 후, #E? 참조를 JSON literal로 주입
                 llm_prompt_raw = _strip_wrapping_quotes(tool_input_str)
                 llm_prompt_resolved = _resolve_placeholders_to_json_literal(llm_prompt_raw, results)
 
-                # 정확도 향상을 위해 '숫자만' 요청 추가 (필요 시 제거 가능)
-                llm_prompt_resolved += "\n\nReturn only the 8-digit corp_code (digits only), no extra text."
+                # Case 1: 고유번호(corp_code) 추출 전용 로직
+                if "corp_code" in llm_prompt_resolved.lower():
+                    # 정확도 향상을 위해 '숫자만' 요청 추가
+                    prompt = llm_prompt_resolved + "\n\nReturn only the 8-digit corp_code (digits only), no extra text."
+                    out_msg = tool.invoke(prompt)
+                    out_text = getattr(out_msg, "content", str(out_msg))
 
-                out_msg = tool.invoke(llm_prompt_resolved)  # ChatOpenAI.invoke -> AIMessage
-                out_text = getattr(out_msg, "content", str(out_msg))
+                    # 폴백용: 프롬프트에 등장한 마지막 참조(#E1 등)를 JSON으로 로드해서 전달
+                    fallback_obj = None
+                    refs = REF_PAT.findall(llm_prompt_raw)
+                    if refs:
+                        fallback_obj = _maybe_json_loads(results.get(refs[-1]))
 
-                # 폴백용: 프롬프트에 등장한 마지막 참조(#E1 등)를 JSON으로 로드해서 전달
-                fallback_obj = None
-                refs = REF_PAT.findall(llm_prompt_raw)
-                if refs:
-                    fallback_obj = _maybe_json_loads(results.get(refs[-1]))
+                    corp_code = _postprocess_corp_code(out_text, fallback_json=fallback_obj)
+                    results[step_name] = corp_code  # '#E2'에는 오직 '00126380' 같은 원자값만 저장
+                    out = corp_code
 
-                corp_code = _postprocess_corp_code(out_text, fallback_json=fallback_obj)
-                results[step_name] = corp_code  # '#E2'에는 오직 '00126380' 같은 원자값만 저장
-                out = corp_code
+                # Case 2: 그 외 일반적인 LLM 질의
+                else:
+                    out_msg = tool.invoke(llm_prompt_resolved)
+                    out = getattr(out_msg, "content", str(out_msg))
+                    results[step_name] = out
 
             # ── 일반 도구 ────────────────────────────────────────────────────
             else:
@@ -313,7 +442,15 @@ class BaseReWOO:
             "results": {},
             "result": "",
         }
-        out = None
-        for s in self.graph.stream(state):
-            out = s
-        return out
+        try:
+            final_state = self.graph.invoke(state)
+        except Exception:
+            # invoke가 안 되는 환경이면 스트리밍 델타를 수집해 최종 상태를 수동 병합
+            final_state = state.copy()
+            for delta in self.graph.stream(state):
+                # delta는 {"plan": {...}} / {"tool": {...}} / {"solve": {...}} 꼴
+                for _node, upd in delta.items():
+                    if isinstance(upd, dict):
+                        # 노드가 반환한 "부분 상태"를 상위 상태에 머지
+                        final_state.update(upd)
+        return final_state

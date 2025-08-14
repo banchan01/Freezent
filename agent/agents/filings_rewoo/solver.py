@@ -6,7 +6,28 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from common.schemas import DomainResult, DomainEvent, Evidence
+from langchain_openai import ChatOpenAI
+from common.utils import OPENAI_API_KEY
 
+def _build_llm_report_filings(ticker: str, raw_steps: Dict[str, Any]) -> str:
+    try:
+        model = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini", temperature=0.2)
+        steps_preview = json.dumps(raw_steps, ensure_ascii=False, default=str)
+        if len(steps_preview) > 6000:
+            steps_preview = steps_preview[:6000] + " ... (truncated)"
+        prompt = (
+            f"Analyze the filings-derived evidence for '{ticker}'.\n"
+            f"Steps(JSON):\n{steps_preview}\n\n"
+            "Instructions:\n"
+            "- Highlight accounting/legal signals (restatements, going concern, covenants, related parties, etc.).\n"
+            "- Summarize risk implications in plain language.\n"
+            "- Provide a one-sentence verdict on filings-driven risk.\n"
+            "Return a concise markdown report (no code blocks)."
+        )
+        res = model.invoke(prompt)
+        return getattr(res, "content", str(res)).strip()[:5000]
+    except Exception as e:
+        return f"[llm_report_error] {e}"
 
 def _clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
@@ -93,7 +114,7 @@ def _score_from_filings(stats: Dict[str, Any]) -> float:
     return _clamp01(base + boosts)
 
 
-def filings_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
+def filings_postprocess(ticker: str, raw_steps: Dict[str, Any]) -> DomainResult:
     stats = _extract_counts_and_hints(raw_steps)
     score = _score_from_filings(stats)
 
@@ -126,10 +147,15 @@ def filings_postprocess(ticker: str, raw_steps: Dict[str, str]) -> DomainResult:
         )
     ]
 
+    rationale = " ".join(stats.get("summaries", []))
+    if not rationale:
+        rationale = "No significant summary from filings."
+    llm_report = _build_llm_report_filings(ticker, raw_steps)
     return DomainResult(
         domain="filing",
         ticker=ticker,
         events=events,
         domain_risk_score=score,
-        rationale="heuristic(filing): counts+keywords from MCP responses with safe defaults",
+        rationale=rationale,  # 요약 정보를 rationale에 담아 전달
+        llm_report=llm_report,
     )

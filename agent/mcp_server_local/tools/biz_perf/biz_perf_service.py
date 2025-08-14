@@ -220,7 +220,7 @@ async def get_biz_performance_tentative(corp_name: str) -> str:
     params = {
         "crtfc_key": API_KEY,
         "corp_code": corp_code,
-        "bgn_de": "20230101",
+        "bgn_de": "20250101",
         "end_de": "20250731",
         "pblntf_ty": "I",
         "pblntf_detail_ty": "I004",

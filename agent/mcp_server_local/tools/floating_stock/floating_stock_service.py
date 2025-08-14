@@ -65,7 +65,6 @@ async def get_major_shareholders(corp_code: str, year: str) -> Optional[MajorSha
 
 async def calculate_floating_stock_ratio(corp_code: str) -> FloatingStockResponse:
     """Calculates the floating stock ratio using a given corp_code."""
-    print(f"[DEBUG] corp_code: {corp_code}, DART_API_KEY: {repr(DART_API_KEY)}")
 
     if not corp_code:
         return FloatingStockResponse(success=False, error="corp_code must be provided.")

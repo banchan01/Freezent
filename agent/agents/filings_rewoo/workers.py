@@ -25,7 +25,7 @@ def _parse_query_to_dict(query: str) -> Dict[str, Any]:
 class FilingsWorkers:
     """
     Filings 도메인의 Worker 모듈.
-    - MCPClient를 통해 원격 MCP 서버의 도구(ListPaidIn, ListBizReports, PaidInAnalyze, BizChangeAnalyze)를 호출합니다.
+    - MCPClient를 통해 원격 MCP 서버의 도구(ListPaidIn, ListBizReports)를 호출합니다.
     - LLMTool은 여전히 로컬에서 사용 가능합니다(요약 후처리 등).
     """
 
@@ -50,18 +50,18 @@ class FilingsWorkers:
         payload = _parse_query_to_dict(query)
         return self.mcp.invoke("ListBizReports", **payload)
 
-    def paid_in_analyze(self, query: str) -> Dict[str, Any]:
+    def analyze_paid_in_capital_increase(self, query: str) -> Dict[str, Any]:
         """
         유상증자 관련 공시를 수집·요약·점수화(LLM-in-the-loop).
         query 예: "corp_code=00126380;bgn_de=20240101;end_de=20241231;prompt_version=v1"
         """
         payload = _parse_query_to_dict(query)
-        return self.mcp.invoke("PaidInAnalyze", **payload)
+        return self.mcp.invoke("AnalyzePaidInCapitalIncrease", **payload)
 
-    def biz_change_analyze(self, query: str) -> Dict[str, Any]:
+    def analyze_business_change(self, query: str) -> Dict[str, Any]:
         """
         영업(매출/주요부문) 변화 관련 공시를 수집·요약·점수화(LLM-in-the-loop).
         query 예: "corp_code=00126380;bgn_de=20240101;end_de=20241231;prompt_version=v1"
         """
         payload = _parse_query_to_dict(query)
-        return self.mcp.invoke("BizChangeAnalyze", **payload)
+        return self.mcp.invoke("AnalyzeBusinessChange", **payload)

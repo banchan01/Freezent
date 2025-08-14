@@ -6,7 +6,7 @@ from tools.floating_stock.floating_stock_tool import register as register_floati
 from tools.biz_perf.biz_perf_tool import register as register_biz_perf
 from tools.corp_info.corp_info_tool import register as register_corp_info
 from tools.lstm_model.lstm_model_tool import register as register_lstm_model
-
+from tools.paid_in_capital_increase.paid_in_capital_increase_tool import register as register_paid_in_list
 
 def create_app() -> FastMCP:
     # FastMCP 생성자에는 description 미지원 → name만 사용
@@ -19,6 +19,7 @@ def create_app() -> FastMCP:
     register_biz_perf(mcp)
     register_corp_info(mcp)
     register_lstm_model(mcp)
+    register_paid_in_list(mcp)
     return mcp
 
 
