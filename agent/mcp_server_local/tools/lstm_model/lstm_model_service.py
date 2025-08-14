@@ -353,7 +353,7 @@ async def predict_anomaly_async(stock_name: str) -> dict:
     df_input = await fetch_recent_data(stock_name)
     tasks = [infer_with_ensemble_set(df_input, i) for i in range(n_ensembles)]
     results = await asyncio.gather(*tasks)
-    avg_anomaly_ratio = float(np.mean(results))
+    avg_anomaly_ratio = float(np.mean(results)) * 0.5
     elapsed = time.time() - t_start
     print(
         f"[predict_anomaly_async] anomaly_ratio={avg_anomaly_ratio:.4f} elapsed={elapsed:.3f}s"

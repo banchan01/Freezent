@@ -198,7 +198,14 @@ class BaseReWOO:
 
         # MCP 서버에서 도구 로드
         try:
-            mcp_tools = asyncio.run(load_mcp_tools())
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 이미 이벤트 루프가 돌고 있으면 nest_asyncio로 중첩 실행 허용
+                import nest_asyncio
+                nest_asyncio.apply()
+                mcp_tools = loop.run_until_complete(load_mcp_tools())
+            else:
+                mcp_tools = loop.run_until_complete(load_mcp_tools())
         except Exception as e:
             print(f"FATAL: Could not load tools from MCP server: {e}")
             mcp_tools = []

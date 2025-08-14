@@ -15,7 +15,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, StaleElementReferenceException
 from webdriver_manager.chrome import ChromeDriverManager
 
 
@@ -377,43 +377,60 @@ def individual_stock_trend(stock_name: str, target_date: str) -> dict:
         ).click()
         time.sleep(2.5)
 
-        # 9) 결과 테이블 첫 번째 행 클릭
-        first_row = wait.until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "#jsGrid__finder_stkisu0_0 tbody tr.jsRow")
+        # 9) 결과 테이블 첫 번째 행 클릭 (stale 방어 버전)
+        grid_selector = "#jsGrid__finder_stkisu0_0 tbody tr.jsRow"
+        grid_locator = (By.CSS_SELECTOR, grid_selector)
+
+        # 결과가 나타날 때까지 대기 (한 개 이상)
+        wait.until(lambda d: len(d.find_elements(*grid_locator)) > 0)
+
+        # JS 클릭 헬퍼: WebElement 참조 없이 한 번에 처리 → stale 확률 낮음
+        def _js_click_first_row():
+            return driver.execute_script(
+                """
+                const el = document.querySelector(arguments[0]);
+                if (!el) return false;
+                el.scrollIntoView({block:'center'});
+                el.click();
+                return true;
+                """,
+                grid_selector,
             )
-        )
-        first_row.click()
 
-        # 10) 달력 열기 버튼 클릭
-        wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button.cal-btn-open"))
-        ).click()
+        clicked = False
+        # 최대 5회 재시도 (리렌더링 대비)
+        for _ in range(5):
+            try:
+                # 시도 1: JS로 직접 클릭
+                if _js_click_first_row():
+                    clicked = True
+                    break
+                # 시도 2: 다시 찾아서 파이썬 객체로 클릭
+                rows = driver.find_elements(*grid_locator)
+                if rows:
+                    row = rows[0]
+                    driver.execute_script(
+                        "arguments[0].scrollIntoView({block:'center'});", row
+                    )
+                    # 클릭 직전 최신 참조로 다시 가져오기
+                    row = driver.find_elements(*grid_locator)[0]
+                    row.click()
+                    clicked = True
+                    break
+            except StaleElementReferenceException:
+                time.sleep(0.2)  # 잠깐 대기 후 재시도
+            except Exception:
+                time.sleep(0.2)
 
-        # 11) 달력 설정: cal-start 먼저 2020-05-25, 그다음 cal-end = target_date
-        set_calendar_by_arrows(driver, wait, "start", 2020, 5, 25)
-        tgt_y = int(target_date[:4])
-        tgt_m = int(target_date[4:6])
-        tgt_d = int(target_date[6:8])
-        set_calendar_by_arrows(driver, wait, "end", tgt_y, tgt_m, tgt_d)
+        if not clicked:
+            raise RuntimeError("결과 첫 행 클릭 실패(요소 stale 또는 미표시)")
 
-        # 12) 달력 확인 버튼 클릭
-        wait.until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button.cal-btn-confirm.cal-btn-apply")
-            )
-        ).click()
-
-        # 13) "1개월" 버튼 클릭 (UI 요구에 따라 유지)
         wait.until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "button.cal-btn-range1m"))
         ).click()
-
-        # 14) 조회 버튼 클릭
         wait.until(EC.element_to_be_clickable((By.ID, "jsSearchButton"))).click()
         time.sleep(0.5)
 
-        # 15) 다운로드 버튼 → CSV 선택
         wait.until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "button.CI-MDI-UNIT-DOWNLOAD"))
         ).click()
@@ -422,10 +439,7 @@ def individual_stock_trend(stock_name: str, target_date: str) -> dict:
             EC.element_to_be_clickable((By.CSS_SELECTOR, 'div[data-type="csv"] a'))
         ).click()
 
-        # 16) CSV 파일 생성까지 대기 후 경로 획득
         latest_csv = _wait_download_csv(req_dir, start_ts=start_ts, timeout=90)
-
-        # 17) CSV 로드 (KRX CSV는 euc-kr)
         df = pd.read_csv(latest_csv, encoding="euc-kr")
 
         # 18) 분석(JSON) 반환
