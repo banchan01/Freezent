@@ -27,13 +27,7 @@ export const StockReport = ({ report }: StockReportProps) => {
         <h2 className="text-3xl md:text-4xl font-bold text-amber-700 leading-snug">
           {report.name} 분석결과
         </h2>
-        {/* (선택) 가격 정보가 타입에 있다면 간단 배지 표기 */}
-        {"currentPrice" in report && (
-          <p className="mt-2 text-sm text-gray-600">
-            현재가: {(report as any).currentPrice?.toLocaleString?.()}원&nbsp;|&nbsp;
-            변화: {(report as any).change} ({(report as any).changePercent}%)
-          </p>
-        )}
+        
       </motion.div>
 
       {/* 1) 원문 Markdown 리포트 (있을 때만) */}
