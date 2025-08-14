@@ -1,8 +1,8 @@
 # **Freezent: 멀티 에이전트 기반 주가 조작 및 불공정 거래 탐지 시스템**
 
 **AI 기반의 지능형 주가조작 탐지 플랫폼**
+<img width="428" height="359" alt="kb_login_poster 4a67871d3cd479996f23" src="https://github.com/user-attachments/assets/a4d43fda-56cd-4b3e-b590-3a478a0cb45d" />
 
-![KB_s_kr3.png](front/public/KB_s_kr3.png)
 
 ## 📜 개요
 
@@ -30,6 +30,7 @@
     *   Next.js 기반의 반응형 웹 인터페이스를 제공하여 사용자 편의성을 극대화했습니다.
 
 ## 🏗️ 시스템 아키텍처
+```
 Freezent/
 ├── 📂 front/                (UI/UX - Next.js)
 │   ├── src/
