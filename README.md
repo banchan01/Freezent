@@ -97,9 +97,10 @@ Freezent는 4개의 핵심 파트(Front, Agent, Model, MCP-server)로 구성되�
 
 3.  **DL Model (PyTorch, LSTM-Autoencoder Ensemble)**
     *   주가, 거래량 등 시계열 데이터의 이상 패턴을 탐지하는 딥러닝 모델입니다.
-    *   여러 개의 LSTM-AE 모델을 앙상블하여 탐지 성능과 안정성을 높였습니다.
+    *   전체 코스피 종목중 300개를 랜덤 선택하여 LSTM-AE 앙상블 모델을 구현해 탐지 성능과 안정성을 높였습니다.
+<img width="1344" height="720" alt="outpuwt" src="https://github.com/user-attachments/assets/4b443fa9-d503-475c-a744-f200171df726" />
+    *   주가조작 논란이 있는 삼부토건의 1년치 데이터 테스트 결과 플롯입니다. 실제 논란이 있는 5월에서 7월 구간에 비율 값이 높은 것을 볼 수 있습니다.
     *   Agent System의 `lstm_model_tool`을 통해 모델의 추론 기능이 제공됩니다.
-
       
 ---
 ## 🛠️ 기술 스택
