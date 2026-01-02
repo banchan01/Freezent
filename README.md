@@ -1,4 +1,4 @@
-# **Freezent: 멀티 에이전트 기반 주가 조작 및 불공정 거래 탐지 시스템**
+# **Freezent**
 
 <!-- <img width="428" height="359" alt="kb_login_poster" src="https://github.com/user-attachments/assets/a4d43fda-56cd-4b3e-b590-3a478a0cb45d" /> -->
 
