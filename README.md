@@ -11,7 +11,7 @@
 
 ---
 
-## ✨ 주요 기능
+## ✨ 주요 특징
 
 ### 1. 멀티 에이전트 시스템
 <img width="743" alt="LSTM-AE Analysis" src="https://github.com/user-attachments/assets/9347d96d-c1e0-4740-b3b4-236a37cb9b26" /> <br>
